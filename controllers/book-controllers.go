@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"database/sql"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -15,46 +16,99 @@ type Book struct {
 	Description string `json:"desc"`
 }
 
-var bookData = []Book{}
+type Controller interface {
+	CreateBook(c *gin.Context)
+	GetBook(c *gin.Context)
+	GetBookById(c *gin.Context)
+	UpdateBook(c *gin.Context)
+	DeleteBook(c *gin.Context)
+}
 
-func CreateBook(c *gin.Context) {
+type bookController struct {
+	DB *sql.DB
+}
+
+func NewBookController(db *sql.DB) Controller {
+	return &bookController{
+		DB: db,
+	}
+}
+
+func (controller bookController) CreateBook(c *gin.Context) {
 	newBook := Book{}
 
 	if err := c.ShouldBindJSON(&newBook); err != nil {
 		c.AbortWithError(http.StatusBadRequest, err)
 		return
 	}
-	newBook.ID = len(bookData) + 1
-	bookData = append(bookData, newBook)
+
+	sqlStatement := `
+	INSERT INTO books (title, author, description)
+	VALUES ($1, $2, $3)
+	`
+
+	err := controller.DB.QueryRowContext(c, sqlStatement, newBook.Title, newBook.Author, newBook.Description).Err()
+	if err != nil {
+		c.AbortWithError(http.StatusInternalServerError, err)
+		return
+	}
 
 	c.String(http.StatusCreated, "Created")
 }
 
-func GetBook(c *gin.Context) {
-	c.JSON(http.StatusOK, bookData)
+func (controller bookController) GetBook(c *gin.Context) {
+	result := []Book{}
+
+	sqlStatement := `SELECT id, title, author, description FROM books`
+
+	rows, err := controller.DB.QueryContext(c, sqlStatement)
+	if err != nil {
+		c.AbortWithError(http.StatusInternalServerError, err)
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		book := Book{}
+
+		err := rows.Scan(&book.ID, &book.Title, &book.Author, &book.Description)
+		if err != nil {
+			c.AbortWithError(http.StatusInternalServerError, err)
+			return
+		}
+
+		result = append(result, book)
+	}
+
+	c.JSON(http.StatusOK, result)
 }
 
-func GetBookById(c *gin.Context) {
+func (controller bookController) GetBookById(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		c.AbortWithError(http.StatusBadRequest, err)
 		return
 	}
 
-	for _, book := range bookData {
-		if book.ID == id {
-			c.JSON(http.StatusOK, book)
-			return
-		}
-	}
+	sqlStatement := `SELECT id, title, author, description FROM books WHERE id = $1`
 
-	c.JSON(http.StatusNotFound, gin.H{
-		"status":  "NOT FOUND",
-		"message": fmt.Sprintf("Book with ID %d not found", id),
-	})
+	row := controller.DB.QueryRowContext(c, sqlStatement, id)
+	book := Book{}
+
+	err = row.Scan(&book.ID, &book.Title, &book.Author, &book.Description)
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusNotFound, gin.H{
+			"status":  "NOT FOUND",
+			"message": fmt.Sprintf("Book with ID %d not found", id),
+		})
+	} else if err != nil {
+		c.AbortWithError(http.StatusInternalServerError, err)
+	} else {
+		c.JSON(http.StatusOK, book)
+	}
 }
 
-func UpdateBook(c *gin.Context) {
+func (controller bookController) UpdateBook(c *gin.Context) {
 	bookRequest := Book{}
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -67,13 +121,21 @@ func UpdateBook(c *gin.Context) {
 		return
 	}
 
-	for i, book := range bookData {
-		if book.ID == id {
-			bookRequest.ID = id
-			bookData[i] = bookRequest
-			c.String(http.StatusOK, "Updated")
-			return
-		}
+	sqlStatement := `
+	UPDATE books
+	SET title = $2, author = $3, description = $4
+	WHERE id = $1
+	`
+
+	res, err := controller.DB.ExecContext(c, sqlStatement, id, bookRequest.Title, bookRequest.Author, bookRequest.Description)
+	if err != nil {
+		c.AbortWithError(http.StatusInternalServerError, err)
+		return
+	}
+
+	if count, _ := res.RowsAffected(); count != 0 {
+		c.String(http.StatusOK, "Updated")
+		return
 	}
 
 	c.JSON(http.StatusNotFound, gin.H{
@@ -82,19 +144,27 @@ func UpdateBook(c *gin.Context) {
 	})
 }
 
-func DeleteBook(c *gin.Context) {
+func (controller bookController) DeleteBook(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		c.AbortWithError(http.StatusBadRequest, err)
 		return
 	}
 
-	for i, book := range bookData {
-		if book.ID == id {
-			bookData = append(bookData[:i], bookData[i+1:]...)
-			c.String(http.StatusOK, "Deleted")
-			return
-		}
+	sqlStatement := `
+	DELETE FROM books
+	WHERE id = $1
+	`
+
+	res, err := controller.DB.ExecContext(c, sqlStatement, id)
+	if err != nil {
+		c.AbortWithError(http.StatusInternalServerError, err)
+		return
+	}
+
+	if count, _ := res.RowsAffected(); count != 0 {
+		c.String(http.StatusOK, "Deleted")
+		return
 	}
 
 	c.JSON(http.StatusNotFound, gin.H{

@@ -5,14 +5,14 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func StartServer() *gin.Engine {
+func StartServer(controller controllers.Controller) *gin.Engine {
 	router := gin.Default()
 
-	router.POST("/books", controllers.CreateBook)
-	router.GET("/books", controllers.GetBook)
-	router.GET("/books/:id", controllers.GetBookById)
-	router.PUT("/books/:id", controllers.UpdateBook)
-	router.DELETE("/books/:id", controllers.DeleteBook)
+	router.POST("/books", controller.CreateBook)
+	router.GET("/books", controller.GetBook)
+	router.GET("/books/:id", controller.GetBookById)
+	router.PUT("/books/:id", controller.UpdateBook)
+	router.DELETE("/books/:id", controller.DeleteBook)
 
 	return router
 }
