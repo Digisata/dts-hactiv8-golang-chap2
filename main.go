@@ -1,7 +1,11 @@
 package main
 
-import "fmt"
+import (
+	"github.com/Digisata/dts-hactiv8-golang-chap2/routers"
+)
 
 func main() {
-	fmt.Println("test")
+	PORT := ":3000"
+
+	routers.StartServer().Run(PORT)
 }
